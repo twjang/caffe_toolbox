@@ -30,6 +30,10 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm 
 import base64
 import cv2
+import h5py
+import statsmodels.api as sm
+import random
+import time
 
 caffe.set_mode_gpu()
 
@@ -37,19 +41,25 @@ caffe.set_mode_gpu()
 
 def cdf(data):
     tmp = np.ma.masked_array(data,np.isnan(data))
-    curmin = tmp.min()
-    curmax = tmp.max()
-    x = np.linspace(min(sample), max(sample))
+    tmp = tmp.reshape((tmp.size,))
+    x = np.linspace(tmp.min(), tmp.max())
     ecdf = sm.distributions.ECDF(tmp)
     y = ecdf(x)
+    diff_y = - (np.hstack([[0],y]) - np.hstack([y,[0]]))[1:y.size] / (x[1]-x[0])
+    diff_x = x[1:]
+    plt.figure()
+    plt.subplot(1,2,1)
     plt.step(x, y)
+    plt.subplot(1,2,2)
+    plt.step(diff_x, diff_y)
     plt.show()
+
 
 def mkarr(data):
     data = np.array(data.data).copy().reshape(data.shape)
     return data
 
-def show(data, padsize=1, padval=0, defcm=cm.Greys):
+def show(data, padsize=1, padval=None, defcm=cm.Greys_r):
     first = True
 
     if isinstance(data, list):
@@ -69,6 +79,9 @@ def show(data, padsize=1, padval=0, defcm=cm.Greys):
         tmp = np.ma.masked_array(data,np.isnan(data))
         curmin = tmp.min()
         curmax = tmp.max()
+        curzero = (curmin  + curmax) / 2.0
+        if padval is None: pval = curzero
+        else: pval = padval
 
         print "min = ", curmin
         print "max = ", curmax
@@ -81,7 +94,7 @@ def show(data, padsize=1, padval=0, defcm=cm.Greys):
             # force the number of filters to be square
             n = int(np.ceil(np.sqrt(data.shape[0])))
             padding = ((0, n ** 2 - data.shape[0]), (0, padsize), (0, padsize)) + ((0, 0),) * (data.ndim - 3)
-            data = np.pad(data, padding, mode='constant', constant_values=(padval, padval))
+            data = np.pad(data, padding, mode='constant', constant_values=(pval, pval))
             
             # tile the filters into an image
             data = data.reshape((n, n) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
@@ -89,7 +102,7 @@ def show(data, padsize=1, padval=0, defcm=cm.Greys):
 
 
         if not first: plt.figure()
-        plt.imshow(data,interpolation="nearest", cmap=defcm)
+        plt.imshow(data,interpolation="nearest", cmap=defcm, vmin = data.min(), vmax = data.max())
 
         first = False
 
@@ -147,9 +160,24 @@ def dd(*kargs):
     kargs.append('diff')
     return bb(*kargs)
 
-def go(use_net=None):
+def go(*kargs): 
+    if len(kargs) == 0:
+        use_net=None
+        data=None
+    elif len(kargs) == 1:
+        if not isinstance(kargs, caffe.Net):
+            data = kargs[0]
+        else: use_net = kargs[0]
+    elif len(kargs) == 2:
+        use_net = kargs[0]
+        data = kargs[1]
+    else:
+        print "See usage by typing hlp()"
+        return
     global net
     if use_net is None: use_net = net
+    if not data is None:
+        pass
     use_net.forward()
     use_net.backward()
 
