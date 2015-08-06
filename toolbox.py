@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
+CAFFE_ROOT = '/home/nyamnyam/Development/caffe/'
+
 import sys
 import os
-sys.path.append('/home/nyamnyam/Development/caffe/python')
+sys.path.append(os.path.join(CAFFE_ROOT, 'python'))
 
 import caffe
 import numpy as np
@@ -22,7 +24,7 @@ caffe.set_mode_gpu()
 COMMON_CODE = """
 import sys
 import os
-sys.path.append('/home/nyamnyam/Development/caffe/python')
+sys.path.append('""" +os.path.join(CAFFE_ROOT, 'python')+ """')
 
 import caffe
 import numpy as np
@@ -581,10 +583,11 @@ def do_eval(args):
 
 
 def do_ipython(args):
+    global CAFFE_ROOT
     code = """
 import sys
 import os
-sys.path.append('/home/nyamnyam/Development/caffe/python')
+sys.path.append('""" + os.path.join(CAFFE_ROOT, 'python') + """')
 
 import caffe
 import numpy as np
@@ -600,16 +603,18 @@ import matplotlib.pyplot as plt
     os.system('rm -f %s' % tmpfname)
 
 def do_mean(args):
+    global CAFFE_ROOT
     os.system("""
-        export CAFFE_PATH="/home/nyamnyam/Development/caffe/"
+        export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
         $CAFFE_PATH./build/tools/compute_image_mean -backend lmdb ./dataset/chinese_train_lmdb ./dataset/chinese_mean.binaryproto
         echo "Done."
         """)
 
 
 def do_train(args):
+    global CAFFE_ROOT
     os.system("""
-        export CAFFE_PATH="/home/nyamnyam/Development/caffe/"
+        export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
         $CAFFE_PATH/./build/tools/caffe train  --solver=solver.prototxt 2>&1 | tee -a train.log
         #./learn train ./charconf.ini  --solver=solver.prototxt 2>&1 | tee -a train.log
     """ )
@@ -617,13 +622,14 @@ def do_train(args):
 
 
 def do_resume(args):
+    global CAFFE_ROOT
     if len(args)<1:
         print "Please specify the .solverstate file"
         return
 
     fname = args[0]
     os.system("""
-        export CAFFE_PATH="/home/nyamnyam/Development/caffe/"
+        export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
         ./learn train  --solver=solver.prototxt \
         --snapshot=%s
     """% (fname))
@@ -685,10 +691,11 @@ def do_pltblob(args):
     plt.show()
 
 def do_draw(args):
+    global CAFFE_ROOT
     if len(args)>0: fname = args[0]
     else: fname='./model_train.prototxt'
 
-    os.system('/home/nyamnyam/Development/caffe/python/draw_net.py %s /tmp/net.png' % fname)
+    os.system(os.path.join(CAFFE_ROOT, '/python/draw_net.py') + ' %s /tmp/net.png' % fname)
     os.system('shotwell /tmp/net.png')
 
 def do_pack(args):
@@ -906,6 +913,11 @@ def do_visweight(args):
     f.write('</html>') 
     f.close()
 
+def do_spec(args):
+    global CAFFE_ROOT
+    fname = os.path.join(CAFFE_ROOT, 'src/caffe/proto/caffe.proto')
+    os.system('less %s' % fname)
+    return
 
 COMMANDS=[
     ('clean',do_clean),
@@ -925,6 +937,7 @@ COMMANDS=[
     ('visweight', do_visweight),
     ('visevol', do_visevol),
     ('evolmovie', do_evolmovie),
+    ('spec', do_spec),
 ]
 
 
