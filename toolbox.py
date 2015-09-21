@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-CAFFE_ROOT = '/home/nyamnyam/Development/caffe/'
+CAFFE_ROOT = '/usr/local/src/caffe/'
 
 import sys
 import os
@@ -235,15 +235,17 @@ def dbgsgd2(curnet=None):
         tmp = np.ma.masked_array(data,np.isnan(data))
         curmin = tmp.min()
         curmax = tmp.max()
-        curvar = tmp.var()
-        print "      sz: min=%+10e  max=%+10e  var=%+10e  NaN=%s" % (curmin, curmax, curvar, str(data.max() != curmax) )
+        curmean = tmp.mean()
+        curstd = tmp.std()
+        print "      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
 
         data = curnet.blobs[i].diff
         tmp = np.ma.masked_array(data,np.isnan(data))
         curmin = tmp.min()
         curmax = tmp.max()
-        curvar = tmp.var()
-        print "    grad: min=%+10e  max=%+10e  var=%+10e  NaN=%s" % (curmin, curmax, curvar, str(data.max() != curmax) )
+        curmean = tmp.mean()
+        curstd = tmp.std()
+        print "    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
         print ""
 
 
@@ -265,13 +267,17 @@ def dbgsgd(curnet=None):
             tmp = np.ma.masked_array(data,np.isnan(data))
             curmin = tmp.min()
             curmax = tmp.max()
-            print "      sz: min=%+10e  max=%+10e  NaN=%s" % (curmin, curmax, str(data.max() != curmax) )
+            curmean = tmp.mean()
+            curstd = tmp.std()
+            print "      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
 
             data = curnet.layers[idx].blobs[i].diff
             tmp = np.ma.masked_array(data,np.isnan(data))
             curmin = tmp.min()
             curmax = tmp.max()
-            print "    grad: min=%+10e  max=%+10e  NaN=%s" % (curmin, curmax, str(data.max() != curmax) )
+            curmean = tmp.mean()
+            curstd = tmp.std()
+            print "    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
     
 
 def hlp():
@@ -379,6 +385,73 @@ def moving_average(a, n=3) :
     ret = np.cumsum(np.array(a), dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
+
+
+def do_pltmulti(args):
+    from matplotlib.font_manager import FontProperties
+    fontP = FontProperties()
+    fontP.set_size('x-small')
+
+    def draw_acc(fname):
+        f=file(fname, 'r')
+        lines=f.readlines()
+        f.close()
+        ## draw accuracy
+        iter_indices = []
+        val = []
+        idx = 0 
+        for line in lines:
+            if line.find('Test net') > -1 and line.find('accuracy') > -1:
+                v = line.strip().split('accuracy = ')[1]
+                iter_indices.append(float(idx))
+                val.append(float(v))
+                idx += 1
+        y = np.array(val)
+        x = np.array(iter_indices)
+
+        return (x, y)
+
+    def draw_loss(fname):
+        f=file(fname, 'r')
+        lines=f.readlines()
+        f.close()
+        ## draw loss        
+        iter_indices = []
+        val = []
+        for line in lines:
+            if line.find('Iteration') > -1 and line.find('loss') > -1:
+                v = line.strip().split('loss = ')[1]
+                i = line.strip().split('Iteration ')[1].split(',')[0]
+                iter_indices.append(float(i))
+                val.append(float(v))
+        y = np.array(val)
+        x = np.array(iter_indices)
+
+        return (x, y)
+
+    #plt.ion()
+    fig = plt.gcf()
+    plt.clf()
+
+    plt.subplot(1,2,1) 
+    line_acc=[]
+    for fname in args:
+        x, y=draw_acc(fname)
+        p,=plt.plot(x, y, label=fname)
+        line_acc.append(p)
+    plt.legend(handles=line_acc, prop=fontP, loc='best')
+
+    plt.subplot(1,2,2) 
+    line_loss=[]
+    for fname in args:
+        x, y=draw_loss(fname)
+        p,=plt.plot(x, y, label=fname)
+        line_loss.append(p)
+    plt.legend(handles=line_loss, prop=fontP, loc='best')
+    plt.show()
+
+
+
 
 def do_pltloss(args):
     plt.ion()
@@ -695,7 +768,7 @@ def do_draw(args):
     if len(args)>0: fname = args[0]
     else: fname='./model_train.prototxt'
 
-    os.system(os.path.join(CAFFE_ROOT, '/python/draw_net.py') + ' %s /tmp/net.png' % fname)
+    os.system(os.path.join(CAFFE_ROOT, 'python/draw_net.py') + ' %s /tmp/net.png' % fname)
     os.system('shotwell /tmp/net.png')
 
 def do_pack(args):
@@ -916,7 +989,7 @@ def do_visweight(args):
 def do_spec(args):
     global CAFFE_ROOT
     fname = os.path.join(CAFFE_ROOT, 'src/caffe/proto/caffe.proto')
-    os.system('less %s' % fname)
+    os.system('vim %s' % fname)
     return
 
 COMMANDS=[
@@ -928,6 +1001,7 @@ COMMANDS=[
     ('resume'  ,do_resume),
     ('pltblob' ,do_pltblob),
     ('pltloss' ,do_pltloss),
+    ('pltmulti' ,do_pltmulti),
     ('pltacc' ,do_pltacc),
     ('loadstate' ,do_loadstate),
     ('draw', do_draw),
