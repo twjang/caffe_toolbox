@@ -540,28 +540,39 @@ def do_pltloss(args):
         
 def do_eval(args):
     if len(args)<2:
-        print "arg1 = model.prototxt, arg2 = model.caffemodel, arg3 = report(optional)"
+        print "arg1 = model.prototxt, arg2 = model.caffemodel, arg3 = output name, arg4 = report(optional), arg 5 = class_name_list.txt"
         return
 
     model_def = args[0]
     model_fname = args[1]
-    if len(args) > 2: report_path = args[2]
+    output_layer = args[2].strip()
+    if len(args) > 3: report_path = args[3]
     else: report_path = None
+
 
     net = caffe.Net(model_def, model_fname, caffe.TEST) 
     print "loaded"
 
-    class_lbl="0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz"
+    
+    class_num = None 
+    if net.blobs.has_key(output_layer):
+        class_num = net.blobs[output_layer].data.shape[1]
+    else:
+        print "layer %s is not found" % output_layer
+        print "possible layers are: %s" % (', '.join(list(net._blob_names)))
+        return 
 
-    def remap(idx):
-        if idx < 10: return idx
-        return 10 + (idx - 10) / 2
+    if len(args) >= 5:
+        class_lbl = file(args[4], 'r').readlines()
+        class_lbl = map(lambda x:x.strip().decode('utf-8'), class_lbl)
+        class_lbl = filter(lambda x:len(x)>0, class_lbl)
+    else:
+        class_lbl = map(lambda x:u'(%d)' % x, range(class_num))
+
     def cls2char(cls):
         return class_lbl[cls]
 
-    confusion_matrix = np.zeros([62,62])
-    confusion_matrix_insensitive = np.zeros([36,36])
-
+    confusion_matrix = np.zeros([class_num,class_num])
 
     answers = []
     answers_by_cls = {}
@@ -569,10 +580,9 @@ def do_eval(args):
     for i in xrange(100):
         net.forward()
         label = list(net.blobs['label'].data.astype(np.int64))
-        result = list(net.blobs['fc7'].data.argmax(1))
+        result = list(net.blobs[output_layer].data.argmax(1))
         for lbl, out in zip(label, result):
             confusion_matrix[lbl, out] += 1.0
-            confusion_matrix_insensitive[remap(lbl), remap(out)] += 1.0
 
         for idx in xrange(len(result)):
             ent = (net.blobs['data'].data[idx].copy(), label[idx], result[idx])
@@ -610,6 +620,10 @@ def do_eval(args):
 
         fmenu = file(os.path.join(report_path, 'menu.htm'), 'w')
         fmenu.write('<html><head></head><body>')
+        
+        def escape(x):
+            import cgi
+            return cgi.escape(x).encode('ascii', 'xmlcharrefreplace')
 
         for cls in answers_by_cls.keys():
             fmenu.write('<a href="./cls_%d.html" target="view">%d</a><br/>\n' % (cls, cls))
@@ -635,22 +649,16 @@ def do_eval(args):
 
                 if res == cls: anscolor = 'green'
                 else: anscolor = 'wrong'
-                idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">&#%d;</span>(&#%d;)</div>\n' % (cls, idxcnt, anscolor, ord(cls2char(res)), ord(cls2char(cls))))
+                idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">%s</span>(%s)</div>\n' % (cls, idxcnt, anscolor, escape(cls2char(res)), escape(cls2char(cls))))
             idxf.write('</body></html>')
             idxf.close()
 
         fmenu.write('</body></html>') 
         fmenu.close()
 
-    res1 = confusion_matrix / confusion_matrix.sum(1).reshape(62, 1)
-    res2 = confusion_matrix_insensitive / confusion_matrix_insensitive.sum(1).reshape(36, 1)
-    plt.figure()
-    plt.subplot(2,1,1)
+    res1 = confusion_matrix / confusion_matrix.sum(1).reshape(class_num, 1)
     plt.imshow(res1, interpolation='nearest')
-    plt.subplot(2,1,2)
-    plt.imshow(res2, interpolation='nearest')
-    print "sensitive:   ", np.trace(res1) / res1.shape[0]
-    print "insensitive: ", np.trace(res2) / res2.shape[0]
+    print "accuracy", np.trace(res1) / res1.shape[0]
 
     plt.show()
 
@@ -703,8 +711,8 @@ def do_resume(args):
     fname = args[0]
     os.system("""
         export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
-        ./learn train  --solver=solver.prototxt \
-        --snapshot=%s
+        #./learn train  --solver=solver.prototxt 
+        $CAFFE_PATH/./build/tools/caffe train  --solver solver.prototxt --snapshot %s 2>&1 | tee -a train.log
     """% (fname))
 
 
