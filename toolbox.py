@@ -686,7 +686,7 @@ def do_eval(args):
                 color1 = np.array([255,255,255])
                 color2 = np.array([255,255,0])
                 color = (1.0 - percent) * color1 + percent * color2
-                f.write('<td class="background:#%02x%02x%02x;">%f</td>' % (color[0], color[1], color[2], val))
+                f.write('<td style="background:#%02x%02x%02x;">%f</td>' % (color[0], color[1], color[2], val))
 
             f.write('</tr>\n')
 
