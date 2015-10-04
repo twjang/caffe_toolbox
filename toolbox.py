@@ -585,7 +585,7 @@ def do_eval(args):
             confusion_matrix[lbl, out] += 1.0
 
         for idx in xrange(len(result)):
-            ent = (net.blobs['data'].data[idx].copy(), label[idx], result[idx])
+            ent = (net.blobs['data'].data[idx].copy(), int(label[idx]), result[idx])
             answers.append(ent)
 
     for ent in answers:
@@ -625,6 +625,78 @@ def do_eval(args):
             import cgi
             return cgi.escape(x).encode('ascii', 'xmlcharrefreplace')
 
+        f = file(os.path.join(report_path, 'main.html'), 'w')
+        f.write("""
+<!DOCTYPE html>
+<html>
+<head>
+<title>Summary</title>
+<style>
+
+.arrow_box:after, .arrow_box:before {
+    top: 100%;
+    border: solid transparent;
+    content: " ";
+    height: 0;
+    width: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.arrow_box {
+    position: relative;
+    background: none;
+    border: 2px solid transparent;
+    width: 200px
+}
+
+.datagrid table { border-collapse: collapse; text-align: left; width: 100%; }
+.datagrid {font: normal 12px/150% Arial, Helvetica, sans-serif; background: #fff; overflow: hidden; border: 1px solid #006699; -webkit-border-radius: 3px; -moz-border-radius: 3px; border-radius: 3px; }
+.datagrid table td, .datagrid table th { padding: 3px 10px; }
+.datagrid table thead th {background:-webkit-gradient( linear, left top, left bottom, color-stop(0.05, #006699), color-stop(1, #00557F) );background:-moz-linear-gradient( center top, #006699 5%, #00557F 100% );filter:progid:DXImageTransform.Microsoft.gradient(startColorstr='#006699', endColorstr='#00557F');background-color:#006699; color:#FFFFFF; font-size: 12px; font-weight: bold; border-left: 1px solid #0070A8; }
+.datagrid table thead th:first-child { border: none; }
+.datagrid table tbody td { color: #00496B; border-left: 1px solid #E1EEF4;font-size: 12px;font-weight: normal; }
+.datagrid table tbody .alt td { background: #E1EEF4; color: #00496B; }
+.datagrid table tbody td:first-child { border-left: none; }
+.datagrid table tbody tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<h1>Acc: [ACC]</h1>
+<table class="datagrid">
+<thead><th class="arrow_box">GT&nbsp;&nbsp;Output</th> 
+""".replace('[ACC]', str(np.trace(confusion_matrix) / confusion_matrix.sum() * 100.0)))
+        def htmlspecialchars(text):
+            from xml.sax.saxutils import escape, unescape
+            html_escape_table = {'"': "&quot;","'": "&apos;"}
+            html_unescape_table = {v:k for k, v in html_escape_table.items()}
+            return escape(text, html_escape_table)
+
+        for tmp in class_lbl:
+            f.write('<th>%s</th>' % htmlspecialchars(tmp))
+        f.write('</thead>\n')
+        
+
+        for gt_idx in xrange(len(class_lbl)):
+            f.write('<tr><td>%s</td>' % htmlspecialchars(class_lbl[gt_idx]))
+            tmptotnum = confusion_matrix[gt_idx].sum() + 0.0001
+            for out_idx in xrange(len(class_lbl)):
+                val = confusion_matrix[gt_idx, out_idx]
+                percent = val / tmptotnum
+                color1 = np.array([255,255,255])
+                color2 = np.array([255,255,0])
+                color = (1.0 - percent) * color1 + percent * color2
+                f.write('<td class="background:#%02x%02x%02x;">%f</td>' % (color[0], color[1], color[2], val))
+
+            f.write('</tr>\n')
+
+        f.write("""</table>
+</body>
+</html>
+        """)
+        f.close()
+
+        fmenu.write('<a href="./main.html" target="view">Summary</a><br/>\n')
         for cls in answers_by_cls.keys():
             fmenu.write('<a href="./cls_%d.html" target="view">%d</a><br/>\n' % (cls, cls))
             try: os.makedirs(os.path.join(report_path, 'imgs_%d' % cls))
@@ -656,9 +728,8 @@ def do_eval(args):
         fmenu.write('</body></html>') 
         fmenu.close()
 
-    res1 = confusion_matrix / confusion_matrix.sum(1).reshape(class_num, 1)
-    plt.imshow(res1, interpolation='nearest')
-    print "accuracy", np.trace(res1) / res1.shape[0]
+    plt.imshow(confusion_matrix, interpolation='nearest')
+    print "accuracy", np.trace(confusion_matrix) / confusion_matrix.sum()
 
     plt.show()
 
@@ -694,11 +765,13 @@ def do_mean(args):
 
 def do_train(args):
     global CAFFE_ROOT
+    if len(args) > 0: gpuid = args[0]
+    else: gpuid = "all"
     os.system("""
         export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
-        $CAFFE_PATH/./build/tools/caffe train  --solver=solver.prototxt 2>&1 | tee -a train.log
+        $CAFFE_PATH/./build/tools/caffe train -gpu %s --solver=solver.prototxt 2>&1 | tee -a train.log
         #./learn train ./charconf.ini  --solver=solver.prototxt 2>&1 | tee -a train.log
-    """ )
+    """ % gpuid )
 
 
 
