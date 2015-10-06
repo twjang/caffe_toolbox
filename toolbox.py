@@ -540,13 +540,13 @@ def do_pltloss(args):
         
 def do_eval(args):
     if len(args)<2:
-        print "arg1 = model.prototxt, arg2 = model.caffemodel, arg3 = output name, arg4 = report(optional), arg 5 = class_name_list.txt"
+        print "arg1=model.prototxt, arg2=model.caffemodel, arg3=output name, arg4=# of training examples(optional), arg5=report(optional), arg6=class_name_list.txt"
         return
 
     model_def = args[0]
     model_fname = args[1]
     output_layer = args[2].strip()
-    if len(args) > 3: report_path = args[3]
+    if len(args) > 3: report_path = args[4]
     else: report_path = None
 
 
@@ -562,8 +562,8 @@ def do_eval(args):
         print "possible layers are: %s" % (', '.join(list(net._blob_names)))
         return 
 
-    if len(args) >= 5:
-        class_lbl = file(args[4], 'r').readlines()
+    if len(args) >= 6:
+        class_lbl = file(args[5], 'r').readlines()
         class_lbl = map(lambda x:x.strip().decode('utf-8'), class_lbl)
         class_lbl = filter(lambda x:len(x)>0, class_lbl)
     else:
@@ -576,8 +576,11 @@ def do_eval(args):
 
     answers = []
     answers_by_cls = {}
+    
+    num_batch=net.blobs['label'].data.size
+    num_iter=100 if len(args) < 4 else int(float(args[3])/num_batch + 0.999)
 
-    for i in xrange(100):
+    for i in xrange(num_iter):
         net.forward()
         label = list(net.blobs['label'].data.astype(np.int64))
         result = list(net.blobs[output_layer].data.argmax(1))
@@ -686,7 +689,8 @@ def do_eval(args):
                 color1 = np.array([255,255,255])
                 color2 = np.array([255,255,0])
                 color = (1.0 - percent) * color1 + percent * color2
-                f.write('<td style="background:#%02x%02x%02x;">%f</td>' % (color[0], color[1], color[2], val))
+                valstr = '%d' % val if val > 0 else '&nbsp;'
+                f.write('<td style="background:#%02x%02x%02x;">%s</td>' % (color[0], color[1], color[2], valstr))
 
             f.write('</tr>\n')
 
