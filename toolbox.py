@@ -6,7 +6,6 @@ import sys
 import os
 sys.path.append(os.path.join(CAFFE_ROOT, 'python'))
 
-import caffe
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -18,8 +17,6 @@ import scipy.io
 import cv2
 import h5py
 import statsmodels.api as sm
-
-caffe.set_mode_gpu()
 
 COMMON_CODE = """
 import sys
@@ -312,6 +309,11 @@ def randstr(length):
     return ''.join([chr(random.randint(0, 10) + ord('a')) for i in xrange(length)])
 
 def do_extract(args):
+    import caffe
+
+    def ext(fname):
+        return fname.split('.')[-1].lower()
+
     if len(args)<3:
         print ("Usage: [prototxt] [caffemodel] [output file name]")
         exit(-1)
@@ -324,16 +326,42 @@ def do_extract(args):
     layers = net.params.keys()
     final = {}
     for layer in layers:
-        final[layer+'_weight'] = net.params[layer][0].data
-        final[layer+'_bias']   = net.params[layer][1].data
-    if fname_output.endswith('.mat'):
+        if len(net.params[layer]) > 0: final[layer+'_weight'] = net.params[layer][0].data
+        if len(net.params[layer]) > 1: final[layer+'_bias']   = net.params[layer][1].data
+        if len(net.params[layer]) > 2:
+            for i in xrange(2, len(net.params[layer])):
+                final[layer+'_param_%02d' % i] = net.params[layer][i].data
+
+    fname_ext = ext(fname_output)
+    if fname_ext in ['mat']:
         scipy.io.savemat(fname_output, final)
-    elif fname_output.endswith('.hdf') or fname_output.endswith('.h5') or fname_output.endswith('.hdf5'):
+    elif fname_ext in ['hdf', 'h5', 'hdf5']:
         f = h5py.File(fname_output, 'w')
         for key in final.keys():
             f[key]=final[key]
         f.close()
+    elif fname_ext in ['cc', 'c', 'cpp']:
+        print final.keys()
+        f = file(fname_output, 'w')
+        keys = final.keys()
+        keys.sort()
+        f.write('// ' + ' '.join(keys) + '\n') 
+        for key in keys:
+            f.write('extern int XXX_dim;\nextern int XXX_shape[];\nextern float XXX[];\n\n'.replace('XXX', key))
+        f.write('\n\n')
 
+        for key in keys:
+            f.write('int %s_dim=%d;\n' % (key, len(final[key].shape)))
+            f.write('int %s_shape[]={%s};\n' % (key, ', '.join([str(x) for x in list(final[key].shape)])))
+            f.write('float %s[]={' % key)
+            idx = 0
+            tmp = final[key].reshape((final[key].size, ))
+            for idx in xrange(final[key].size):
+                if idx > 0: f.write(',')
+                if idx % 25 == 0: f.write('\n')
+                f.write('%f' % tmp[idx])
+            f.write('\n};\n\n')
+        f.close()
 
 def do_clean(args):
     os.system("rm -rf ./snapshot/*")
@@ -539,8 +567,12 @@ def do_pltloss(args):
         plt.pause(1.0)
         
 def do_eval(args):
+    import caffe
+    caffe.set_mode_gpu()
+
+    import openpyxl  
     if len(args)<2:
-        print "arg1=model.prototxt, arg2=model.caffemodel, arg3=output name, arg4=# of training examples(optional), arg5=report(optional), arg6=class_name_list.txt"
+        print "arg1=model.prototxt, arg2=model.caffemodel, arg3=output name, arg4=# of test examples(optional), arg5=report(optional), arg6=class_name_list.txt"
         return
 
     model_def = args[0]
@@ -570,7 +602,13 @@ def do_eval(args):
         class_lbl = map(lambda x:u'(%d)' % x, range(class_num))
 
     def cls2char(cls):
-        return class_lbl[cls]
+        return class_lbl[int(cls)].encode('utf-8')
+
+    def escape_cls2char(cls):
+        res = ''
+        for ch in class_lbl[int(cls)]:
+            res += '&#%d;' % ord(ch)
+        return res
 
     confusion_matrix = np.zeros([class_num,class_num])
 
@@ -584,27 +622,33 @@ def do_eval(args):
         net.forward()
         label = list(net.blobs['label'].data.astype(np.int64))
         result = list(net.blobs[output_layer].data.argmax(1))
+        
         for lbl, out in zip(label, result):
             confusion_matrix[lbl, out] += 1.0
 
         for idx in xrange(len(result)):
-            ent = (net.blobs['data'].data[idx].copy(), int(label[idx]), result[idx])
+            score_lst = list(net.blobs[output_layer].data[idx].copy())
+            score_lst = zip(score_lst, range(len(score_lst)))
+            score_lst.sort()
+            score_lst.reverse()
+            score_lst = score_lst[0:5]
+            ent = (net.blobs['data'].data[idx].astype(np.float), int(label[idx]), int(result[idx]), score_lst)
             answers.append(ent)
 
     for ent in answers:
-        img, lbl, res = ent
-        if (answers_by_cls.has_key(lbl)):
+        img, lbl, res, score_lst = ent
+        if answers_by_cls.has_key(lbl):
             isok = 1 if lbl == res else 0
-            answers_by_cls[lbl].append((isok, (img, res)))
+            answers_by_cls[lbl].append((isok, (img, res, score_lst)))
         else:
             isok = 1 if lbl == res else 0
-            answers_by_cls[lbl] = [(isok, (img, res)),]
+            answers_by_cls[lbl] = [(isok, (img, res, score_lst)),]
     
     for key in answers_by_cls.keys():
         entries = answers_by_cls[key]
         entries.sort(key=lambda e: e[0])
         answers_by_cls[key] = entries
-                
+
     if report_path:
         try: os.makedirs(report_path)
         except OSError: pass
@@ -624,85 +668,32 @@ def do_eval(args):
         fmenu = file(os.path.join(report_path, 'menu.htm'), 'w')
         fmenu.write('<html><head></head><body>')
         
-        def escape(x):
-            import cgi
-            return cgi.escape(x).encode('ascii', 'xmlcharrefreplace')
+        book = openpyxl.Workbook(encoding="utf-8")
+        sheet_rc = book.create_sheet(title='raw')
+        sheet_p = book.create_sheet(title='percent')
+        sheets=[sheet_rc, sheet_p]
 
-        f = file(os.path.join(report_path, 'main.html'), 'w')
-        f.write("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Summary</title>
-<style>
+        for idx in xrange(len(sheets)):
+            sheets[idx].cell(row=0, column=0).value="Accuracy"
+            sheets[idx].cell(row=0, column=1).value=np.trace(confusion_matrix) / confusion_matrix.sum() * 100.0
+            sheets[idx].cell(row=1, column=0).value='GT \\ Output'
 
-.arrow_box:after, .arrow_box:before {
-    top: 100%;
-    border: solid transparent;
-    content: " ";
-    height: 0;
-    width: 0;
-    position: absolute;
-    pointer-events: none;
-}
+        for i in xrange(0, class_num):
+            for idx in xrange(len(sheets)):
+                sheets[idx].cell(row=1,   column=i+1).value='%s(%d)' % ( cls2char(i), i)
+                sheets[idx].cell(row=i+2, column=0).value='%s(%d)' % ( cls2char(i), i)
 
-.arrow_box {
-    position: relative;
-    background: none;
-    border: 2px solid transparent;
-    width: 200px
-}
+        tot_cnt = confusion_matrix.sum()
+        for gt_idx in xrange(0, class_num):
+            for out_idx in xrange(0, class_num):
+                sheets[0].cell(row=gt_idx+2, column=out_idx+1).value=confusion_matrix[gt_idx, out_idx]
+                sheets[1].cell(row=gt_idx+2, column=out_idx+1).value=float(confusion_matrix[gt_idx, out_idx]) / float(tot_cnt)
 
-.datagrid table { border-collapse: collapse; text-align: left; width: 100%; }
-.datagrid {font: normal 12px/150% Arial, Helvetica, sans-serif; background: #fff; overflow: hidden; border: 1px solid #006699; -webkit-border-radius: 3px; -moz-border-radius: 3px; border-radius: 3px; }
-.datagrid table td, .datagrid table th { padding: 3px 10px; }
-.datagrid table thead th {background:-webkit-gradient( linear, left top, left bottom, color-stop(0.05, #006699), color-stop(1, #00557F) );background:-moz-linear-gradient( center top, #006699 5%, #00557F 100% );filter:progid:DXImageTransform.Microsoft.gradient(startColorstr='#006699', endColorstr='#00557F');background-color:#006699; color:#FFFFFF; font-size: 12px; font-weight: bold; border-left: 1px solid #0070A8; }
-.datagrid table thead th:first-child { border: none; }
-.datagrid table tbody td { color: #00496B; border-left: 1px solid #E1EEF4;font-size: 12px;font-weight: normal; }
-.datagrid table tbody .alt td { background: #E1EEF4; color: #00496B; }
-.datagrid table tbody td:first-child { border-left: none; }
-.datagrid table tbody tr:last-child td { border-bottom: none; }
-</style>
-</head>
-<body>
-<h1>Acc: [ACC]</h1>
-<table class="datagrid">
-<thead><th class="arrow_box">GT&nbsp;&nbsp;Output</th> 
-""".replace('[ACC]', str(np.trace(confusion_matrix) / confusion_matrix.sum() * 100.0)))
-        def htmlspecialchars(text):
-            from xml.sax.saxutils import escape, unescape
-            html_escape_table = {'"': "&quot;","'": "&apos;"}
-            html_unescape_table = {v:k for k, v in html_escape_table.items()}
-            return escape(text, html_escape_table)
+        book.save(os.path.join(report_path, 'main.xlsx'))
 
-        for tmp in class_lbl:
-            f.write('<th>%s</th>' % htmlspecialchars(tmp))
-        f.write('</thead>\n')
-        
-
-        for gt_idx in xrange(len(class_lbl)):
-            f.write('<tr><td>%s</td>' % htmlspecialchars(class_lbl[gt_idx]))
-            tmptotnum = confusion_matrix[gt_idx].sum() + 0.0001
-            for out_idx in xrange(len(class_lbl)):
-                val = confusion_matrix[gt_idx, out_idx]
-                percent = val / tmptotnum
-                color1 = np.array([255,255,255])
-                color2 = np.array([255,255,0])
-                color = (1.0 - percent) * color1 + percent * color2
-                valstr = '%d' % val if val > 0 else '&nbsp;'
-                f.write('<td style="background:#%02x%02x%02x;">%s</td>' % (color[0], color[1], color[2], valstr))
-
-            f.write('</tr>\n')
-
-        f.write("""</table>
-</body>
-</html>
-        """)
-        f.close()
-
-        fmenu.write('<a href="./main.html" target="view">Summary</a><br/>\n')
+        fmenu.write('<a href="./main.xlsx" target="view">Summary</a><br/>\n')
         for cls in answers_by_cls.keys():
-            fmenu.write('<a href="./cls_%d.html" target="view">%d</a><br/>\n' % (cls, cls))
+            fmenu.write('<a href="./cls_%d.html" target="view">%d(%s)</a><br/>\n' % (cls, cls, escape_cls2char(cls)))
             try: os.makedirs(os.path.join(report_path, 'imgs_%d' % cls))
             except OSError: pass
             idxcnt = 0
@@ -714,9 +705,9 @@ def do_eval(args):
             idxf.write('.wrong { color:#EE2020; font-weight:bold;}\n')
             idxf.write('</style>')
             idxf.write('</head><body>')
-            idxf.write('<h1>%d</h1>\n' % cls)
+            idxf.write('<h1>%d(%s)</h1>\n' % (cls, cls2char(cls)))
             for isok, data in answers_by_cls[cls]:
-                img, res = data
+                img, res, score_lst = data
                 idxcnt += 1
                 img -= img.min()
                 img /= img.max()
@@ -725,7 +716,8 @@ def do_eval(args):
 
                 if res == cls: anscolor = 'green'
                 else: anscolor = 'wrong'
-                idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">%s</span>(%s)</div>\n' % (cls, idxcnt, anscolor, escape(cls2char(res)), escape(cls2char(cls))))
+                top5str = '<br/>\n'.join(['<span style="font-size:0.3em;color:#aaa;">%s-%f</span>' % (cls2char(clsnum), score) for score, clsnum in score_lst])
+                idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
             idxf.write('</body></html>')
             idxf.close()
 
@@ -826,6 +818,7 @@ hlp()
 
 
 def do_pltblob(args):
+    import caffe
     if len(args)>0: fname = args[1]
     else: fname = './dataset/chinese_mean.binaryproto'
 
@@ -966,6 +959,7 @@ def do_evolmovie(args):
 
 
 def do_visweight(args):
+    import caffe
     if (len(args) < 3):
         print "usage: [model def] [caffemodel] [output dir] [output fname]"
         return
