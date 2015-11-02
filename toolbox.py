@@ -705,7 +705,7 @@ def do_eval(args):
             idxf.write('.wrong { color:#EE2020; font-weight:bold;}\n')
             idxf.write('</style>')
             idxf.write('</head><body>')
-            idxf.write('<h1>%d(%s)</h1>\n' % (cls, cls2char(cls)))
+            idxf.write('<h1>%d(%s)</h1>\n' % (cls, escape_cls2char(cls)))
             for isok, data in answers_by_cls[cls]:
                 img, res, score_lst = data
                 idxcnt += 1
@@ -716,7 +716,7 @@ def do_eval(args):
 
                 if res == cls: anscolor = 'green'
                 else: anscolor = 'wrong'
-                top5str = '<br/>\n'.join(['<span style="font-size:0.3em;color:#aaa;">%s-%f</span>' % (cls2char(clsnum), score) for score, clsnum in score_lst])
+                top5str = '<br/>\n'.join(['<span style="font-size:0.3em;color:#aaa;">%s-%f</span>' % (escape_cls2char(clsnum), score) for score, clsnum in score_lst])
                 idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
             idxf.write('</body></html>')
             idxf.close()
