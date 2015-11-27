@@ -671,6 +671,12 @@ def do_eval(args):
         book = openpyxl.Workbook(encoding="utf-8")
         sheet_rc = book.create_sheet(title='raw')
         sheet_p = book.create_sheet(title='percent')
+        #remove default sheet
+        for sheetname in book.get_sheet_names():
+            if sheetname in ['raw', 'percent']: continue
+            s=book.get_sheet_by_name(sheetname)
+            book.remove_sheet(s)
+
         sheets=[sheet_rc, sheet_p]
 
         for idx in xrange(len(sheets)):
@@ -688,6 +694,10 @@ def do_eval(args):
             for out_idx in xrange(0, class_num):
                 sheets[0].cell(row=gt_idx+2, column=out_idx+1).value=confusion_matrix[gt_idx, out_idx]
                 sheets[1].cell(row=gt_idx+2, column=out_idx+1).value=float(confusion_matrix[gt_idx, out_idx]) / float(tot_cnt)
+
+        # freeze panes
+        sheets[0].freeze_panes = sheets[0].cell('B3')
+        sheets[1].freeze_panes = sheets[1].cell('B3')
 
         book.save(os.path.join(report_path, 'main.xlsx'))
 
@@ -724,11 +734,11 @@ def do_eval(args):
         fmenu.write('</body></html>') 
         fmenu.close()
 
-    plt.imshow(confusion_matrix, interpolation='nearest')
+        f = file(os.path.join(report_path, 'accuracy.txt'), 'w')
+        f.write("accuracy: %f\n" % (np.trace(confusion_matrix) / confusion_matrix.sum()))
+        f.close()
+
     print "accuracy", np.trace(confusion_matrix) / confusion_matrix.sum()
-
-    plt.show()
-
 
 def do_ipython(args):
     global CAFFE_ROOT
