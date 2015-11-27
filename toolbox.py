@@ -801,9 +801,12 @@ def do_loadstate(args):
         print "Please specify the .caffemodel file"
         return 
 
+    tmpfname = '/tmp/' +randstr(10) 
+
     code = COMMON_CODE + """
 model_def = base64.b64decode('%s')
 model_fname = base64.b64decode('%s')
+self_fname = base64.b64decode('%s')
 net = caffe.Net(model_def, model_fname, caffe.TEST) 
 del model_fname
 del model_def
@@ -815,8 +818,10 @@ print "d = mkarr(bb(2,0))"
 print "show(d)"
 
 hlp()
-""" % (base64.b64encode(args[0]), base64.b64encode(args[1]))
-    tmpfname = '/tmp/' +randstr(10) 
+try: os.remove(self_fname)
+except OSError: pass
+
+""" % (base64.b64encode(args[0]), base64.b64encode(args[1]), base64.b64encode(tmpfname))
     f=file(tmpfname, 'w') 
     f.write(code)
     f.close()
@@ -856,8 +861,11 @@ def do_draw(args):
     if len(args)>0: fname = args[0]
     else: fname='./model_train.prototxt'
 
-    os.system(os.path.join(CAFFE_ROOT, 'python/draw_net.py') + ' %s /tmp/net.png' % fname)
-    os.system('shotwell /tmp/net.png')
+    tmpfname = '/tmp/'+randstr(10)+'.png'
+    os.system(os.path.join(CAFFE_ROOT, 'python/draw_net.py') + ' %s %s' % (fname,tmpfname))
+    os.system('shotwell %s' % tmpfname)
+    try: os.remove(tmpfname)
+    except OSError: pass
 
 def do_pack(args):
     if (len(args) < 1):
