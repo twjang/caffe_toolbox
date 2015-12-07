@@ -701,6 +701,35 @@ def do_eval(args):
 
         book.save(os.path.join(report_path, 'main.xlsx'))
 
+        ## save confusion_matrix in a mat file 
+        sp.io.savemat(os.path.join(report_path, 'confusion.mat'), {'confusion': np.array(confusion_matrix)})
+
+        ## best class pairs to merge 
+        sym = confusion_matrix - np.diag(np.diag(confusion_matrix))
+        sym = sym + sym.T
+
+        conf_lst = []
+        n = sym.shape[0]
+        for i in xrange(n):
+            for j in xrange(i+1, n):
+                conf_lst.append((sym[i, j], i, j))
+
+        conf_lst.sort()
+        conf_lst.reverse()
+        
+        fconf=file(os.path.join(report_path, 'confusion.txt'), 'wb')
+        fconf.write('freq,freq_percent,cls_label1,cls1,cls_label2,cls2,accum_freq,unique_cls\n')
+        accum_freq = 0
+        clsset=set()
+        for freq, i, j in conf_lst:
+            accum_freq += freq
+            clsset.add(i)
+            clsset.add(j)
+            line = u'%d,%f%%,%s,%d,%s,%d,%d,%d\n' % (freq, 100.0 * float(freq) / float(confusion_matrix.sum()), escape_cls2char(i), i, escape_cls2char(j),j, accum_freq, len(clsset))
+            if freq == 0: break
+            fconf.write(line)
+        fconf.close()
+
         fmenu.write('<a href="./main.xlsx" target="view">Summary</a><br/>\n')
         for cls in answers_by_cls.keys():
             fmenu.write('<a href="./cls_%d.html" target="view">%d(%s)</a><br/>\n' % (cls, cls, escape_cls2char(cls)))
@@ -784,15 +813,41 @@ def do_train(args):
 def do_resume(args):
     global CAFFE_ROOT
     if len(args)<1:
-        print "Please specify the .solverstate file"
+        print "Please specify the .caffemodel or .solverstate file"
         return
 
     fname = args[0]
-    os.system("""
-        export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
-        #./learn train  --solver=solver.prototxt 
-        $CAFFE_PATH/./build/tools/caffe train  --solver solver.prototxt --snapshot %s 2>&1 | tee -a train.log
-    """% (fname))
+    if fname.endswith('.solverstate'):
+        os.system("""
+            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
+            $CAFFE_PATH/./build/tools/caffe train  --solver solver.prototxt --snapshot %s 2>&1 | tee -a train.log
+        """% (fname))
+    elif fname.endswith('.caffemodel'):
+        os.system("""
+            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
+            $CAFFE_PATH/./build/tools/caffe train  --solver solver.prototxt --weights %s 2>&1 | tee -a train.log
+        """% (fname))
+
+def do_bench(args):
+    if len(args):
+        print "Usage: [model prototxt or caffemodel] [gpuid:optional]"
+        return
+
+    fname = args[0]
+
+    if len(args) > 1: gpuid = args[0]
+    else: gpuid = "all"
+    
+    if fname.endswith('.caffemodel'):
+        os.system("""
+            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
+            $CAFFE_PATH/./build/tools/caffe time -weights %s 2>&1 | tee -a train.log
+        """% (fname, gpuid))
+    elif fname.endswith('.prototxt'):
+        os.system("""
+            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
+            $CAFFE_PATH/./build/tools/caffe time -model %s 2>&1 | tee -a train.log
+        """% (fname, gpuid))
 
 
 def do_loadstate(args):
@@ -1109,6 +1164,7 @@ COMMANDS=[
     ('visevol', do_visevol),
     ('evolmovie', do_evolmovie),
     ('spec', do_spec),
+    ('bench', do_bench),
 ]
 
 
