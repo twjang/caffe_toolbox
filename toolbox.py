@@ -1144,6 +1144,29 @@ def do_spec(args):
     os.system('vim %s' % fname)
     return
 
+def do_latest(args):
+    if len(args) < 1:
+        print "Usage: [parameter dir]"
+        return
+
+    root = args[0]
+    maxnum = -1
+    for fname in os.listdir(root):
+        if not fname.endswith('.caffemodel'): continue
+        curnum = int(fname.split('.')[0].split('_')[-1])
+        if curnum > maxnum: maxnum = curnum
+
+    print "remove all files other than the latest weight? (type \"yes\")"
+    if raw_input().strip().lower() != 'yes':
+        return
+
+    for fname in os.listdir(root):
+        if not fname.split('.')[-1] in ['caffemodel', 'solverstate']: continue
+        curnum = int(fname.split('.')[0].split('_')[-1])
+        if curnum != maxnum: 
+            print "Removing %s" % fname
+            os.remove(os.path.join(root, fname))
+
 COMMANDS=[
     ('clean',do_clean),
     ('dataset' ,do_dataset),
@@ -1165,6 +1188,7 @@ COMMANDS=[
     ('evolmovie', do_evolmovie),
     ('spec', do_spec),
     ('bench', do_bench),
+    ('latest', do_latest),
 ]
 
 
