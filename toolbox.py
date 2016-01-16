@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-CAFFE_ROOT = '/usr/local/src/caffe/'
+from settings import CAFFE_ROOT
 
 import sys
 import os
@@ -368,9 +368,57 @@ def do_clean(args):
     os.system("rm -f ./train.log")
 
 def do_dataset(args):
-    os.system("rm -rf ./dataset/*")
-    os.system("./create_chinese.sh")
-    do_mean()
+    if len(args) < 1:
+        print "Usage: [lmdb path to inspect] [img per row=10] [img per col=10]"
+        return 
+
+    import lmdb
+    import caffe.proto.caffe_pb2
+    from caffe.proto.caffe_pb2 import Datum
+
+    rowsz = 10
+    colsz = 10
+    if len(args) > 1: rowsz = int(args[1])
+    if len(args) > 2: colsz = int(args[2])
+
+    env = lmdb.open(args[0], readonly=True)
+    print "%d entries" % env.stat()['entries'] 
+    try:
+        with env.begin() as txn:
+            with txn.cursor() as curs:
+                while True:
+                    stack = []
+                    for key, value in curs:
+                        d = Datum.FromString(value)
+                        c = d.channels
+                        h = d.height
+                        w = d.width
+                        lbl = d.label
+                        im = np.fromstring(d.data, dtype=np.uint8).reshape(c, h, w)
+                        stack.append((key, lbl, im))
+                        if len(stack) == rowsz * colsz:
+                            break
+
+                    totalim = np.zeros((c, (h+1)*rowsz, (w+1)*colsz))
+                    idx = 0
+                    for key, lbl, im in stack:
+                        x = idx % colsz
+                        y = (idx - x) / colsz
+                        x *= (w+1)
+                        y *= (h+1)
+                        idx += 1
+                        totalim[:, y:y+h, x:x+w] = im
+
+                    totalim = totalim.transpose(1,2,0) / 255.0
+                    cv2.imshow("img", totalim)
+                    pressed = cv2.waitKey(0)
+                    if pressed == -1 or pressed == 1048603: break
+    except KeyboardInterrupt:
+        env.close()
+        return
+    env.close()
+
+
 
 def do_pltacc(args):
     plt.ion()
@@ -634,6 +682,7 @@ def do_eval(args):
             score_lst = score_lst[0:5]
             ent = (net.blobs['data'].data[idx].astype(np.float), int(label[idx]), int(result[idx]), score_lst)
             answers.append(ent)
+        print ("%d/%d" % (i, num_iter))
 
     for ent in answers:
         img, lbl, res, score_lst = ent
@@ -668,38 +717,40 @@ def do_eval(args):
         fmenu = file(os.path.join(report_path, 'menu.htm'), 'w')
         fmenu.write('<html><head></head><body>')
         
-        book = openpyxl.Workbook(encoding="utf-8")
-        sheet_rc = book.create_sheet(title='raw')
-        sheet_p = book.create_sheet(title='percent')
-        #remove default sheet
-        for sheetname in book.get_sheet_names():
-            if sheetname in ['raw', 'percent']: continue
-            s=book.get_sheet_by_name(sheetname)
-            book.remove_sheet(s)
+        # Let's do not care about the fucking xlsx file, as we have good mat file
+        if False:
+            book = openpyxl.Workbook(encoding="utf-8")
+            sheet_rc = book.create_sheet(title='raw')
+            sheet_p = book.create_sheet(title='percent')
+            #remove default sheet
+            for sheetname in book.get_sheet_names():
+                if sheetname in ['raw', 'percent']: continue
+                s=book.get_sheet_by_name(sheetname)
+                book.remove_sheet(s)
 
-        sheets=[sheet_rc, sheet_p]
+            sheets=[sheet_rc, sheet_p]
 
-        for idx in xrange(len(sheets)):
-            sheets[idx].cell(row=0, column=0).value="Accuracy"
-            sheets[idx].cell(row=0, column=1).value=np.trace(confusion_matrix) / confusion_matrix.sum() * 100.0
-            sheets[idx].cell(row=1, column=0).value='GT \\ Output'
-
-        for i in xrange(0, class_num):
             for idx in xrange(len(sheets)):
-                sheets[idx].cell(row=1,   column=i+1).value='%s(%d)' % ( cls2char(i), i)
-                sheets[idx].cell(row=i+2, column=0).value='%s(%d)' % ( cls2char(i), i)
+                sheets[idx].cell(row=0, column=0).value="Accuracy"
+                sheets[idx].cell(row=0, column=1).value=np.trace(confusion_matrix) / confusion_matrix.sum() * 100.0
+                sheets[idx].cell(row=1, column=0).value='GT \\ Output'
 
-        tot_cnt = confusion_matrix.sum()
-        for gt_idx in xrange(0, class_num):
-            for out_idx in xrange(0, class_num):
-                sheets[0].cell(row=gt_idx+2, column=out_idx+1).value=confusion_matrix[gt_idx, out_idx]
-                sheets[1].cell(row=gt_idx+2, column=out_idx+1).value=float(confusion_matrix[gt_idx, out_idx]) / float(tot_cnt)
+            for i in xrange(0, class_num):
+                for idx in xrange(len(sheets)):
+                    sheets[idx].cell(row=1,   column=i+1).value='%s(%d)' % ( cls2char(i), i)
+                    sheets[idx].cell(row=i+2, column=0).value='%s(%d)' % ( cls2char(i), i)
 
-        # freeze panes
-        sheets[0].freeze_panes = sheets[0].cell('B3')
-        sheets[1].freeze_panes = sheets[1].cell('B3')
+            tot_cnt = confusion_matrix.sum()
+            for gt_idx in xrange(0, class_num):
+                for out_idx in xrange(0, class_num):
+                    sheets[0].cell(row=gt_idx+2, column=out_idx+1).value=confusion_matrix[gt_idx, out_idx]
+                    sheets[1].cell(row=gt_idx+2, column=out_idx+1).value=float(confusion_matrix[gt_idx, out_idx]) / float(tot_cnt)
 
-        book.save(os.path.join(report_path, 'main.xlsx'))
+            # freeze panes
+            sheets[0].freeze_panes = sheets[0].cell('B3')
+            sheets[1].freeze_panes = sheets[1].cell('B3')
+
+            book.save(os.path.join(report_path, 'main.xlsx'))
 
         ## save confusion_matrix in a mat file 
         sp.io.savemat(os.path.join(report_path, 'confusion.mat'), {'confusion': np.array(confusion_matrix)})
@@ -730,10 +781,16 @@ def do_eval(args):
             fconf.write(line)
         fconf.close()
 
-        fmenu.write('<a href="./main.xlsx" target="view">Summary</a><br/>\n')
+        fmenu.write('<a href="./confusion.mat" target="view">Summary</a><br/>\n')
+        try: os.makedirs(os.path.join(report_path, 'im_f', 'all'))
+        except OSError: pass
+        try: os.makedirs(os.path.join(report_path, 'im_t', 'all'))
+        except OSError: pass
         for cls in answers_by_cls.keys():
             fmenu.write('<a href="./cls_%d.html" target="view">%d(%s)</a><br/>\n' % (cls, cls, escape_cls2char(cls)))
-            try: os.makedirs(os.path.join(report_path, 'imgs_%d' % cls))
+            try: os.makedirs(os.path.join(report_path, 'im_t', 'imgs_%d' % cls))
+            except OSError: pass
+            try: os.makedirs(os.path.join(report_path, 'im_f', 'imgs_%d' % cls))
             except OSError: pass
             idxcnt = 0
             idxfname = os.path.join(report_path, 'cls_%d.html' % cls)
@@ -751,12 +808,17 @@ def do_eval(args):
                 img -= img.min()
                 img /= img.max()
                 img = img[0]
-                cv2.imwrite(os.path.join(report_path, 'imgs_%d' % cls, '%d.png' % idxcnt), img * 255)
+                
+                if isok: path_ok = 'im_t'
+                else: path_ok = 'im_f'
+
+                cv2.imwrite(os.path.join(report_path, path_ok,'imgs_%d' % cls, '%d.png' % idxcnt), img * 255)
+                cv2.imwrite(os.path.join(report_path, path_ok,'all', '%d_%d.png' % (cls, idxcnt)), img * 255)
 
                 if res == cls: anscolor = 'green'
                 else: anscolor = 'wrong'
                 top5str = '<br/>\n'.join(['<span style="font-size:0.3em;color:#aaa;">%s-%f</span>' % (escape_cls2char(clsnum), score) for score, clsnum in score_lst])
-                idxf.write('<div class="item"><img src="./imgs_%d/%d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
+                idxf.write('<div class="item"><img src="./%s/imgs_%d/%d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (path_ok, cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
             idxf.write('</body></html>')
             idxf.close()
 
@@ -829,25 +891,98 @@ def do_resume(args):
         """% (fname))
 
 def do_bench(args):
-    if len(args):
-        print "Usage: [model prototxt or caffemodel] [gpuid:optional]"
+    if len(args)<2:
+        print "Usage: [model prototxt or caffemodel] [output xlsx] [device:cpu if not specified. or gpuid or all(all gpu)]"
         return
 
-    fname = args[0]
+    import shlex, subprocess    
+    import openpyxl
 
-    if len(args) > 1: gpuid = args[0]
-    else: gpuid = "all"
+    fname = args[0]
+    outfname = args[1]
+    if len(args) < 3: device = 'cpu'
+    else: device = args[2].strip().lower()
+
+    
+    if device == 'cpu': gpuflag = ''
+    else: gpuflag = '-gpu %s' % device
     
     if fname.endswith('.caffemodel'):
-        os.system("""
-            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
-            $CAFFE_PATH/./build/tools/caffe time -weights %s 2>&1 | tee -a train.log
-        """% (fname, gpuid))
+        cmd=("%s/./build/tools/caffe time -weights %s %s" % (CAFFE_ROOT, fname, gpuflag))
     elif fname.endswith('.prototxt'):
-        os.system("""
-            export CAFFE_PATH=\"""" + CAFFE_ROOT + """\"
-            $CAFFE_PATH/./build/tools/caffe time -model %s 2>&1 | tee -a train.log
-        """% (fname, gpuid))
+        cmd=("%s/./build/tools/caffe time -model %s %s" % (CAFFE_ROOT, fname, gpuflag))
+
+    args = shlex.split(cmd)
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    print "Benchmark started.."
+    stdout, stderr = p.communicate()
+    print "Benchmark Done."
+
+    lst = stderr.split('\n')
+    idx = 0
+    for line in lst:
+        if line.find('Average time per layer:') > -1: 
+            break
+        idx += 1
+
+    lst = filter(lambda x: x.find('] ') > -1, lst[idx+1:])
+    
+    layers=[]
+    forward_time={}
+    backward_time={}
+
+    total_forward = 0.0
+    total_backward = 0.0
+
+    lst = [ line.split('] ',1)[1].strip().split() for line in lst ]
+    for line in lst:
+        if not 'forward:' in line and not 'backward:' in line: continue
+        layer_name = line[0]
+        is_forward = (line[1].lower().find('forward') > -1)
+        time = line[2]
+        time_unit = line[3].replace('.', '')
+
+        if not layer_name in layers:
+            layers.append(layer_name)
+
+        if is_forward:
+            forward_time[layer_name] = time
+            total_forward += float(time)
+        else:
+            backward_time[layer_name] = time
+            total_backward += float(time)
+
+    book = openpyxl.Workbook(encoding="utf-8")
+    sheet = book.create_sheet(title='result')
+    #remove default sheet
+    for sheetname in book.get_sheet_names():
+        if sheetname in ['result']: continue
+        s=book.get_sheet_by_name(sheetname)
+        book.remove_sheet(s)
+
+    sheet.cell(row=0, column=1).value="forward(ms)"
+    sheet.cell(row=0, column=2).value="forward(%)"
+    sheet.cell(row=0, column=3).value="backward(ms)"
+    sheet.cell(row=0, column=4).value="backward(%)"
+    
+    last_row = len(layers)+1
+    row = 1
+    for layer_name in layers:
+        sheet.cell(row=row, column=0).value = layer_name
+        if forward_time.has_key(layer_name):
+            sheet.cell(row=row, column=1).value = forward_time[layer_name]
+            sheet.cell(row=row, column=2).value = '=B%d/$B$%d' % (row+1, last_row+1)
+        if backward_time.has_key(layer_name):
+            sheet.cell(row=row, column=3).value = backward_time[layer_name]
+            sheet.cell(row=row, column=4).value = '=D%d/$D$%d' % (row+1, last_row+1)
+        row += 1
+
+    sheet.cell(row=last_row, column=1).value = '=sum(B2:B%d)' % last_row
+    sheet.cell(row=last_row, column=3).value = '=sum(D2:D%d)' % last_row
+
+    # freeze panes
+    sheet.freeze_panes = sheet.cell('B2')
+    book.save(outfname)
 
 
 def do_loadstate(args):
@@ -1167,6 +1302,17 @@ def do_latest(args):
             print "Removing %s" % fname
             os.remove(os.path.join(root, fname))
 
+def do_countdb(args):
+    import lmdb
+    if len(args) < 1:
+        print "Usage: [lmdb path]"
+        return
+
+    env = lmdb.open(args[0], readonly=True)
+    print env.stat()['entries']
+    env.close()
+
+
 COMMANDS=[
     ('clean',do_clean),
     ('dataset' ,do_dataset),
@@ -1189,6 +1335,7 @@ COMMANDS=[
     ('spec', do_spec),
     ('bench', do_bench),
     ('latest', do_latest),
+    ('countdb', do_countdb),
 ]
 
 
