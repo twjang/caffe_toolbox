@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from   __future__ import print_function
 
 from settings import CAFFE_ROOT
 
@@ -19,6 +20,7 @@ import h5py
 import statsmodels.api as sm
 
 COMMON_CODE = """
+from   __future__ import print_function
 import sys
 import os
 sys.path.append('""" +os.path.join(CAFFE_ROOT, 'python')+ """')
@@ -33,10 +35,115 @@ import h5py
 import statsmodels.api as sm
 import random
 import time
+import sklearn
+import sklearn.manifold
+from   sklearn.manifold import TSNE
+
 
 caffe.set_mode_gpu()
 
+def rand_cmap(nlabels, type='bright', first_color_black=True, last_color_black=False, verbose=True):
+    \"\"\"
+    Creates a random colormap to be used together with matplotlib. Useful for segmentation tasks
+    :param nlabels: Number of labels (size of colormap)
+    :param type: 'bright' for strong colors, 'soft' for pastel colors
+    :param first_color_black: Option to use first color as black, True or False
+    :param last_color_black: Option to use last color as black, True or False
+    :param verbose: Prints the number of labels and shows the colormap. True or False
+    :return: colormap for matplotlib
+    \"\"\"
+    from matplotlib.colors import LinearSegmentedColormap
+    import colorsys
+    import numpy as np
+
+    if type not in ('bright', 'soft'):
+        print ('Please choose "bright" or "soft" for type')
+        return
+
+    if verbose:
+        print('Number of labels: ' + str(nlabels))
+
+    # Generate color map for bright colors, based on hsv
+    if type == 'bright':
+        randHSVcolors = [(np.random.uniform(low=0.0, high=1),
+                          np.random.uniform(low=0.2, high=1),
+                          np.random.uniform(low=0.9, high=1)) for i in xrange(nlabels)]
+
+        # Convert HSV list to RGB
+        randRGBcolors = []
+        for HSVcolor in randHSVcolors:
+            randRGBcolors.append(colorsys.hsv_to_rgb(HSVcolor[0], HSVcolor[1], HSVcolor[2]))
+
+        if first_color_black:
+            randRGBcolors[0] = [0, 0, 0]
+
+        if last_color_black:
+            randRGBcolors[-1] = [0, 0, 0]
+
+        random_colormap = LinearSegmentedColormap.from_list('new_map', randRGBcolors, N=nlabels)
+
+    # Generate soft pastel colors, by limiting the RGB spectrum
+    if type == 'soft':
+        low = 0.6
+        high = 0.95
+        randRGBcolors = [(np.random.uniform(low=low, high=high),
+                          np.random.uniform(low=low, high=high),
+                          np.random.uniform(low=low, high=high)) for i in xrange(nlabels)]
+
+        if first_color_black:
+            randRGBcolors[0] = [0, 0, 0]
+
+        if last_color_black:
+            randRGBcolors[-1] = [0, 0, 0]
+        random_colormap = LinearSegmentedColormap.from_list('new_map', randRGBcolors, N=nlabels)
+
+    # Display colorbar
+    if verbose:
+        from matplotlib import colors, colorbar
+        from matplotlib import pyplot as plt
+        fig, ax = plt.subplots(1, 1, figsize=(15, 0.5))
+
+        bounds = np.linspace(0, nlabels, nlabels + 1)
+        norm = colors.BoundaryNorm(bounds, nlabels)
+
+        cb = colorbar.ColorbarBase(ax, cmap=random_colormap, norm=norm, spacing='proportional', ticks=None,
+                                   boundaries=bounds, format='%1i', orientation=u'horizontal')
+
+    return random_colormap
+
 ## Taken from http://nbviewer.ipython.org/github/bvlc/caffe/blob/master/examples/filter_visualization.ipynb
+
+def tsne(data, label):
+    model = TSNE(n_components=2, random_state = 0)
+    print ("tsne preparing..")
+    data = model.fit_transform(data)
+    print ("tsne done")
+    all_lbl = list(set(list(label)))
+    old2new = dict(zip(all_lbl, range(len(all_lbl))))
+    new_cmap = rand_cmap(len(all_lbl), verbose=False)
+    label = np.array([old2new[label[i]] for i in xrange(len(label))])
+    plt.scatter(data[:,0], data[:,1], cmap=new_cmap, c=label, alpha=0.5, vmin=0, vmax=label.max())
+    plt.show(block=False)
+    
+
+def tsnei(data_layer, label_layer, nsample):
+    data = []
+    lbl = []
+    num_per_batch = bb(data_layer).shape[0]
+    
+    totnum = 0
+    while totnum < nsample:
+        totnum += num_per_batch
+        go()
+        data.append(bb(data_layer))
+        lbl.append(bb(label_layer))
+        print ("%d/%d" % (totnum, nsample), end='\\r')
+    print("")
+    data = np.concatenate(data)
+    lbl = np.concatenate(lbl)
+
+    tsne(data, lbl)
+
 
 def cdf(data):
     tmp = np.ma.masked_array(data,np.isnan(data))
@@ -51,7 +158,7 @@ def cdf(data):
     plt.step(x, y)
     plt.subplot(1,2,2)
     plt.step(diff_x, diff_y)
-    plt.show()
+    plt.show(block=False)
 
 
 def mkarr(data):
@@ -69,7 +176,7 @@ def show(data, padsize=1, padval=None, defcm=cm.Greys_r):
         else: datalst = [data]
 
     if len(datalst) > 10:
-        print "You're now plotting %d images. Continue?(y/N)" % len(datalst), 
+        print ("You're now plotting %d images. Continue?(y/N)" % len(datalst))
         sure = raw_input()
         if sure.strip().lower() != 'y':
             return
@@ -82,9 +189,9 @@ def show(data, padsize=1, padval=None, defcm=cm.Greys_r):
         if padval is None: pval = curzero
         else: pval = padval
 
-        print "min = ", curmin
-        print "max = ", curmax
-        print "contains NaN = ", data.max() != curmax
+        print ("min = %f" % curmin)
+        print ("max = %f" % curmax)
+        print ("contains NaN = "+ str(data.max() != curmax))
         
         del tmp
             
@@ -105,7 +212,7 @@ def show(data, padsize=1, padval=None, defcm=cm.Greys_r):
 
         first = False
 
-    plt.show()
+    plt.show(block=False)
 
 def lslayer(curnet=None):
     global net
@@ -114,15 +221,15 @@ def lslayer(curnet=None):
         layer_name = curnet._layer_names[idx]
         layer_type = curnet.layers[idx].type
         layer_blob_num = len(curnet.layers[idx].blobs)
-        print "layer[%d]:%s, %s" % (idx, layer_name, layer_type)
+        print ("layer[%d]:%s, %s" % (idx, layer_name, layer_type))
         for i in xrange(layer_blob_num):
-            print "    blob[%d]: %s" % (i, str(curnet.layers[idx].blobs[i].data.shape))
+            print ("    blob[%d]: %s" % (i, str(curnet.layers[idx].blobs[i].data.shape)))
 
 def lsblob(curnet=None):
     global net
     if curnet is None: curnet = net
     for key in net.blobs.keys():
-        print key, ":", net.blobs[key].data.shape
+        print ("%s : %s" % (key, str(net.blobs[key].data.shape)))
 
 def bb(*kargs):
     global net
@@ -171,7 +278,7 @@ def go(*kargs):
         use_net = kargs[0]
         data = kargs[1]
     else:
-        print "See usage by typing hlp()"
+        print ("See usage by typing hlp()")
         return
     global net
     if use_net is None: use_net = net
@@ -219,14 +326,14 @@ def showrange(data):
         curmin = tmp.min()
         curmax = tmp.max()
 
-        print "min = %15e  max=%15e  NaN=%s" % (curmin, curmax, str(data.max() != curmax))
+        print ("min = %15e  max=%15e  NaN=%s" % (curmin, curmax, str(data.max() != curmax)))
 
 def dbgsgd2(curnet=None):
     global net
     if curnet is None: curnet = net
 
     for i in curnet.blobs.keys():
-        print " == blob[%s]" % (i)
+        print (" == blob[%s]" % (i))
         
         data = curnet.blobs[i].data
         tmp = np.ma.masked_array(data,np.isnan(data))
@@ -234,7 +341,7 @@ def dbgsgd2(curnet=None):
         curmax = tmp.max()
         curmean = tmp.mean()
         curstd = tmp.std()
-        print "      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
+        print ("      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) ))
 
         data = curnet.blobs[i].diff
         tmp = np.ma.masked_array(data,np.isnan(data))
@@ -242,8 +349,8 @@ def dbgsgd2(curnet=None):
         curmax = tmp.max()
         curmean = tmp.mean()
         curstd = tmp.std()
-        print "    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
-        print ""
+        print ("    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) ))
+        print ("")
 
 
 def dbgsgd(curnet=None):
@@ -254,11 +361,11 @@ def dbgsgd(curnet=None):
         layer_type = curnet.layers[idx].type
         layer_blob_num = len(curnet.layers[idx].blobs)
         if layer_blob_num == 0: continue
-        print ""
-        print "layer[%d]:%s (%s)" % (idx, layer_name, layer_type)
+        print ("")
+        print ("layer[%d]:%s (%s)" % (idx, layer_name, layer_type))
 
         for i in xrange(layer_blob_num):
-            print " == blob[%d]" % (i)
+            print (" == blob[%d]" % (i))
             
             data = curnet.layers[idx].blobs[i].data
             tmp = np.ma.masked_array(data,np.isnan(data))
@@ -266,7 +373,7 @@ def dbgsgd(curnet=None):
             curmax = tmp.max()
             curmean = tmp.mean()
             curstd = tmp.std()
-            print "      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
+            print ("      sz: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) ))
 
             data = curnet.layers[idx].blobs[i].diff
             tmp = np.ma.masked_array(data,np.isnan(data))
@@ -274,35 +381,35 @@ def dbgsgd(curnet=None):
             curmax = tmp.max()
             curmean = tmp.mean()
             curstd = tmp.std()
-            print "    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) )
+            print ("    grad: min=%+10e  max=%+10e  mean=%+10e  std=%+10e  NaN=%s" % (curmin, curmax, curmean, curstd, str(data.max() != curmax) ))
     
 
 def hlp():
-    print "* hlp(): show help"
-    print ""
-    print "* go(net): run 1 iteration"
-    print "* fg(net): forward"
-    print "* bg(net): backward" 
-    print ""
-    print "* mkarr(blob): make blob into np.array"
-    print "* show(data, padsize=1, padval=0): draw 4D-array whose shape is (numch, patch_h, patch_w)"
-    print ""
-    print "* lslayer(net[default by net]): list all layers"
-    print "* lsblob(net[default by net]): list all blobs" 
-    print ""
-    print "* bb(net[default by net], blob_name): returns blob"
-    print "* bb(net[default by net], layeridx, blob_name): returns blob associated to layer[layeridx]"
-    print "* dd(net[default by net], blob_name): returns diff"
-    print "* dd(net[default by net], layeridx, blob_name): returns diff associated to layer[layeridx]"
-    print ""
-    print "* bloblst(net[default by net]): returns the list of all blob keys"
-    print "* layerlst(net[default by net]): returns the list of indices of all layers with weights"
-    print ""
-    print "* showrange(data): prints range of given matrices"
-    print "* dbgsgd(net[default by net]): debug learning rate"
-    print "* dbgsgd2(net[default by net]): debug learning rate"
-    print "" 
-    print "* cdf(data): draw sample cdf function"
+    print ("* hlp(): show help")
+    print ("")
+    print ("* go(net): run 1 iteration")
+    print ("* fg(net): forward")
+    print ("* bg(net): backward")
+    print ("")
+    print ("* mkarr(blob): make blob into np.array")
+    print ("* show(data, padsize=1, padval=0): draw 4D-array whose shape is (numch, patch_h, patch_w)")
+    print ("")
+    print ("* lslayer(net[default by net]): list all layers")
+    print ("* lsblob(net[default by net]): list all blobs")
+    print ("")
+    print ("* bb(net[default by net], blob_name): returns blob")
+    print ("* bb(net[default by net], layeridx, blob_name): returns blob associated to layer[layeridx]")
+    print ("* dd(net[default by net], blob_name): returns diff")
+    print ("* dd(net[default by net], layeridx, blob_name): returns diff associated to layer[layeridx]")
+    print ("")
+    print ("* bloblst(net[default by net]): returns the list of all blob keys")
+    print ("* layerlst(net[default by net]): returns the list of indices of all layers with weights")
+    print ("")
+    print ("* showrange(data): prints range of given matrices")
+    print ("* dbgsgd(net[default by net]): debug learning rate")
+    print ("* dbgsgd2(net[default by net]): debug learning rate")
+    print ("" )
+    print ("* cdf(data): draw sample cdf function")
 """
 
 def randstr(length):
@@ -341,7 +448,7 @@ def do_extract(args):
             f[key]=final[key]
         f.close()
     elif fname_ext in ['cc', 'c', 'cpp']:
-        print final.keys()
+        print (final.keys())
         f = file(fname_output, 'w')
         keys = final.keys()
         keys.sort()
@@ -369,7 +476,7 @@ def do_clean(args):
 
 def do_dataset(args):
     if len(args) < 1:
-        print "Usage: [lmdb path to inspect] [img per row=10] [img per col=10]"
+        print ("Usage: [lmdb path to inspect] [img per row=10] [img per col=10]")
         return 
 
     import lmdb
@@ -382,7 +489,7 @@ def do_dataset(args):
     if len(args) > 2: colsz = int(args[2])
 
     env = lmdb.open(args[0], readonly=True)
-    print "%d entries" % env.stat()['entries'] 
+    print ("%d entries" % env.stat()['entries'] )
     try:
         with env.begin() as txn:
             with txn.cursor() as curs:
@@ -524,7 +631,7 @@ def do_pltmulti(args):
         p,=plt.plot(x, y, label=fname)
         line_loss.append(p)
     plt.legend(handles=line_loss, prop=fontP, loc='best')
-    plt.show()
+    plt.show(block=False)
 
 
 
@@ -620,7 +727,7 @@ def do_eval(args):
 
     import openpyxl  
     if len(args)<2:
-        print "arg1=model.prototxt, arg2=model.caffemodel, arg3=output name, arg4=# of test examples(optional), arg5=report(optional), arg6=class_name_list.txt"
+        print ("arg1=model.prototxt, arg2=model.caffemodel, arg3=output name, arg4=# of test examples(optional), arg5=report(optional), arg6=class_name_list.txt")
         return
 
     model_def = args[0]
@@ -631,15 +738,15 @@ def do_eval(args):
 
 
     net = caffe.Net(model_def, model_fname, caffe.TEST) 
-    print "loaded"
+    print ("loaded..")
 
     
     class_num = None 
     if net.blobs.has_key(output_layer):
         class_num = net.blobs[output_layer].data.shape[1]
     else:
-        print "layer %s is not found" % output_layer
-        print "possible layers are: %s" % (', '.join(list(net._blob_names)))
+        print ("layer %s is not found" % output_layer)
+        print ("possible layers are: %s" % (', '.join(list(net._blob_names))))
         return 
 
     if len(args) >= 6:
@@ -682,7 +789,8 @@ def do_eval(args):
             score_lst = score_lst[0:5]
             ent = (net.blobs['data'].data[idx].astype(np.float), int(label[idx]), int(result[idx]), score_lst)
             answers.append(ent)
-        print ("%d/%d" % (i, num_iter))
+        print ("%d/%d" % (i, num_iter), end='\r')
+    print ("")
 
     for ent in answers:
         img, lbl, res, score_lst = ent
@@ -829,7 +937,7 @@ def do_eval(args):
         f.write("accuracy: %f\n" % (np.trace(confusion_matrix) / confusion_matrix.sum()))
         f.close()
 
-    print "accuracy", np.trace(confusion_matrix) / confusion_matrix.sum()
+    print ("accuracy: %f" % (np.trace(confusion_matrix) / confusion_matrix.sum()))
 
 def do_ipython(args):
     global CAFFE_ROOT
@@ -875,7 +983,7 @@ def do_train(args):
 def do_resume(args):
     global CAFFE_ROOT
     if len(args)<1:
-        print "Please specify the .caffemodel or .solverstate file"
+        print ("Please specify the .caffemodel or .solverstate file")
         return
 
     fname = args[0]
@@ -892,7 +1000,7 @@ def do_resume(args):
 
 def do_bench(args):
     if len(args)<2:
-        print "Usage: [model prototxt or caffemodel] [output xlsx] [device:cpu if not specified. or gpuid or all(all gpu)]"
+        print ("Usage: [model prototxt or caffemodel] [output xlsx] [device:cpu if not specified. or gpuid or all(all gpu)]")
         return
 
     import shlex, subprocess    
@@ -914,9 +1022,9 @@ def do_bench(args):
 
     args = shlex.split(cmd)
     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print "Benchmark started.."
+    print ("Benchmark started..")
     stdout, stderr = p.communicate()
-    print "Benchmark Done."
+    print ("Benchmark Done.")
 
     lst = stderr.split('\n')
     idx = 0
@@ -987,31 +1095,43 @@ def do_bench(args):
 
 def do_loadstate(args):
     global COMMON_CODE
-    if len(args)<1:
-        print "Please specify the .caffemodel file"
+    if len(args)<2:
+        print ("usage: [ prototxt ] [ caffemodel ]  [optional:mode (default=test)]")
+        print ("Please specify the .caffemodel file")
         return 
 
     tmpfname = '/tmp/' +randstr(10) 
+
+    mode='TEST'
+    if len(args) > 2:
+        if args[2].lower().strip() in ['train', 'trng']:
+            mode = 'TRAIN'
+        elif args[2].lower().strip() in ['test', 'val']:
+            mode = 'TEST'
+        else:
+            print ("Unrecognized mode: %s" % args[2])
+            print ("valid candidates are train,trng,test,val")
+            return
 
     code = COMMON_CODE + """
 model_def = base64.b64decode('%s')
 model_fname = base64.b64decode('%s')
 self_fname = base64.b64decode('%s')
-net = caffe.Net(model_def, model_fname, caffe.TEST) 
+net = caffe.Net(model_def, model_fname, caffe.%s) 
 del model_fname
 del model_def
 
-print " *** net_param is set for you"
-print " *** to plot the weight, "
-print 
-print "d = mkarr(bb(2,0))"
-print "show(d)"
+print (" *** net_param is set for you")
+print (" *** to plot the weight, ")
+print ("")
+print ("d = mkarr(bb(2,0))")
+print ("show(d)")
 
 hlp()
 try: os.remove(self_fname)
 except OSError: pass
 
-""" % (base64.b64encode(args[0]), base64.b64encode(args[1]), base64.b64encode(tmpfname))
+""" % (base64.b64encode(args[0]), base64.b64encode(args[1]), base64.b64encode(tmpfname), mode)
     f=file(tmpfname, 'w') 
     f.write(code)
     f.close()
@@ -1044,7 +1164,7 @@ def do_pltblob(args):
     plt.imshow(res)
     plt.subplot(212)
     plt.imshow(myarr)
-    plt.show()
+    plt.show(block=False)
 
 def do_draw(args):
     global CAFFE_ROOT
@@ -1059,7 +1179,7 @@ def do_draw(args):
 
 def do_pack(args):
     if (len(args) < 1):
-        print "usage: [pack dir name]"
+        print ("usage: [pack dir name]")
         return
     
     d = args[0]
@@ -1074,7 +1194,7 @@ def do_pack(args):
 
 def do_visevol(args):
     if (len(args) < 3):
-        print "usage: [model def] [snapshot dir] [output dir]"
+        print ("usage: [model def] [snapshot dir] [output dir]")
         return
     
     model_def = args[0]
@@ -1115,7 +1235,7 @@ def do_visevol(args):
 
 def do_evolmovie(args):
     if (len(args) < 3):
-        print "usage: [visevol output dir] [layer id] [output file]"
+        print ("usage: [visevol output dir] [layer id] [output file]")
         return
 
     visevol_path = args[0]
@@ -1132,15 +1252,15 @@ def do_evolmovie(args):
             if os.path.isfile(imgpath):
                 imglst.append((iternum, imgpath))
             else:
-                print "No such layer id(%s)" % layerid
-                print "Please use .. "
+                print ("No such layer id(%s)" % layerid)
+                print ("Please use .. ")
                 for f in os.listdir(imgdir):
                     if not f.endswith('.jpg'): continue
-                    print f.replace('.jpg', '')
+                    print (f.replace('.jpg', ''))
                 return
     
     if len(imglst) == 0:
-        print "Please check your arguments: no images found"
+        print ("Please check your arguments: no images found")
         return
 
     imglst.sort()
@@ -1151,7 +1271,7 @@ def do_evolmovie(args):
     frameW = im.shape[1]
     frameH = im.shape[0]
 
-    print frameH, "x", frameW
+    print ("%d x %d" % (frameH, frameW))
 
     fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')
     writer = cv2.VideoWriter(outfname, fourcc, fps, (frameW, frameH)) 
@@ -1163,13 +1283,13 @@ def do_evolmovie(args):
     cv2.destroyAllWindows()
     writer.release()
     writer = None
-    print "Done"
+    print ("Done")
 
 
 def do_visweight(args):
     import caffe
     if (len(args) < 3):
-        print "usage: [model def] [caffemodel] [output dir] [output fname]"
+        print ("usage: [model def] [caffemodel] [output dir] [output fname]")
         return
     
     model_def = args[0]
@@ -1281,7 +1401,7 @@ def do_spec(args):
 
 def do_latest(args):
     if len(args) < 1:
-        print "Usage: [parameter dir]"
+        print ("Usage: [parameter dir]")
         return
 
     root = args[0]
@@ -1291,7 +1411,7 @@ def do_latest(args):
         curnum = int(fname.split('.')[0].split('_')[-1])
         if curnum > maxnum: maxnum = curnum
 
-    print "remove all files other than the latest weight? (type \"yes\")"
+    print ("remove all files other than the latest weight? (type \"yes\")")
     if raw_input().strip().lower() != 'yes':
         return
 
@@ -1299,17 +1419,19 @@ def do_latest(args):
         if not fname.split('.')[-1] in ['caffemodel', 'solverstate']: continue
         curnum = int(fname.split('.')[0].split('_')[-1])
         if curnum != maxnum: 
-            print "Removing %s" % fname
+            print ("Removing %s" % fname)
             os.remove(os.path.join(root, fname))
+
+        print ("Done")
 
 def do_countdb(args):
     import lmdb
     if len(args) < 1:
-        print "Usage: [lmdb path]"
+        print ("Usage: [lmdb path]")
         return
 
     env = lmdb.open(args[0], readonly=True)
-    print env.stat()['entries']
+    print (env.stat()['entries'])
     env.close()
 
 
@@ -1341,9 +1463,9 @@ COMMANDS=[
 
 def main():
     if len(sys.argv)<2:
-        print "Usage: %s [command]" % sys.argv[0]
+        print ("Usage: %s [command]" % sys.argv[0])
         for cmd, fun in COMMANDS:
-            print "   ", cmd
+            print ("   %s" % cmd)
         exit(0)
 
     for cmd, fun in COMMANDS:
@@ -1351,9 +1473,9 @@ def main():
             fun(sys.argv[2:])
             exit(0)
 
-    print "Invalid command, availible commands are:"
+    print ("Invalid command, availible commands are:")
     for cmd, fun in COMMANDS:
-        print "   ", cmd
+        print ("   %s" % cmd)
 
 if __name__=="__main__":
     main()
