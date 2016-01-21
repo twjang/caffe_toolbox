@@ -630,6 +630,8 @@ def do_pltmulti(args):
     plt.subplot(1,2,2) 
     line_loss=[]
     for fname in args:
+        if os.path.isdir(fname):
+            fname = os.path.join(fname, 'train.log')
         x, y=draw_loss(fname)
         p,=plt.plot(x, y, label=fname)
         line_loss.append(p)
