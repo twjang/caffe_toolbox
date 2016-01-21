@@ -138,6 +138,7 @@ def tsnei(data_layer, label_layer, nsample):
         data.append(bb(data_layer))
         lbl.append(bb(label_layer))
         print ("%d/%d" % (totnum, nsample), end='\\r')
+        import sys;sys.stdout.flush()
     print("")
     data = np.concatenate(data)
     lbl = np.concatenate(lbl)
@@ -619,6 +620,8 @@ def do_pltmulti(args):
     plt.subplot(1,2,1) 
     line_acc=[]
     for fname in args:
+        if os.path.isdir(fname):
+            fname = os.path.join(fname, 'train.log')
         x, y=draw_acc(fname)
         p,=plt.plot(x, y, label=fname)
         line_acc.append(p)
@@ -631,15 +634,18 @@ def do_pltmulti(args):
         p,=plt.plot(x, y, label=fname)
         line_loss.append(p)
     plt.legend(handles=line_loss, prop=fontP, loc='best')
-    plt.show(block=False)
+    plt.show()
 
 
 
 
 def do_pltloss(args):
     plt.ion()
-    fname = args[0]
+    if len(args) == 0: fname = '.'
+    else: fname = args[0]
 
+    if os.path.isdir(fname):
+        fname = os.path.join(path, 'train.log')
 
     if len(args)>1: recent_entry = int(args[1])
     else: recent_entry = None
@@ -790,6 +796,7 @@ def do_eval(args):
             ent = (net.blobs['data'].data[idx].astype(np.float), int(label[idx]), int(result[idx]), score_lst)
             answers.append(ent)
         print ("%d/%d" % (i, num_iter), end='\r')
+        import sys;sys.stdout.flush()
     print ("")
 
     for ent in answers:
@@ -890,16 +897,12 @@ def do_eval(args):
         fconf.close()
 
         fmenu.write('<a href="./confusion.mat" target="view">Summary</a><br/>\n')
-        try: os.makedirs(os.path.join(report_path, 'im_f', 'all'))
+        try: os.makedirs(os.path.join(report_path, 'im_f'))
         except OSError: pass
-        try: os.makedirs(os.path.join(report_path, 'im_t', 'all'))
+        try: os.makedirs(os.path.join(report_path, 'im_t'))
         except OSError: pass
         for cls in answers_by_cls.keys():
             fmenu.write('<a href="./cls_%d.html" target="view">%d(%s)</a><br/>\n' % (cls, cls, escape_cls2char(cls)))
-            try: os.makedirs(os.path.join(report_path, 'im_t', 'imgs_%d' % cls))
-            except OSError: pass
-            try: os.makedirs(os.path.join(report_path, 'im_f', 'imgs_%d' % cls))
-            except OSError: pass
             idxcnt = 0
             idxfname = os.path.join(report_path, 'cls_%d.html' % cls)
             idxf = file(idxfname, 'w')
@@ -920,13 +923,12 @@ def do_eval(args):
                 if isok: path_ok = 'im_t'
                 else: path_ok = 'im_f'
 
-                cv2.imwrite(os.path.join(report_path, path_ok,'imgs_%d' % cls, '%d.png' % idxcnt), img * 255)
-                cv2.imwrite(os.path.join(report_path, path_ok,'all', '%d_%d.png' % (cls, idxcnt)), img * 255)
+                cv2.imwrite(os.path.join(report_path, path_ok,'%05d_%05d.png' % (cls, idxcnt)), img * 255)
 
                 if res == cls: anscolor = 'green'
                 else: anscolor = 'wrong'
                 top5str = '<br/>\n'.join(['<span style="font-size:0.3em;color:#aaa;">%s-%f</span>' % (escape_cls2char(clsnum), score) for score, clsnum in score_lst])
-                idxf.write('<div class="item"><img src="./%s/imgs_%d/%d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (path_ok, cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
+                idxf.write('<div class="item"><img src="./%s/%05d_%05d.png" /><span class="%s">%s</span>(%s)<br/>%s</div>\n' % (path_ok, cls, idxcnt, anscolor, escape_cls2char(res), escape_cls2char(cls), top5str))
             idxf.write('</body></html>')
             idxf.close()
 
@@ -1024,6 +1026,7 @@ def do_bench(args):
     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     print ("Benchmark started..")
     stdout, stderr = p.communicate()
+    print (stderr)
     print ("Benchmark Done.")
 
     lst = stderr.split('\n')
@@ -1164,7 +1167,7 @@ def do_pltblob(args):
     plt.imshow(res)
     plt.subplot(212)
     plt.imshow(myarr)
-    plt.show(block=False)
+    plt.show()
 
 def do_draw(args):
     global CAFFE_ROOT
