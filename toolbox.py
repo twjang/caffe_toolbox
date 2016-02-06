@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-CAFFE_ROOT = '/home/nyamnyam/Development/caffe/'
+CAFFE_ROOT = '/usr/local/caffe/'
 
 import sys
 import os
@@ -695,7 +695,7 @@ def do_draw(args):
     if len(args)>0: fname = args[0]
     else: fname='./model_train.prototxt'
 
-    os.system(os.path.join(CAFFE_ROOT, '/python/draw_net.py') + ' %s /tmp/net.png' % fname)
+    os.system(os.path.join(CAFFE_ROOT, 'python/draw_net.py') + ' %s /tmp/net.png' % fname)
     os.system('shotwell /tmp/net.png')
 
 def do_pack(args):
@@ -919,6 +919,65 @@ def do_spec(args):
     os.system('less %s' % fname)
     return
 
+def do_feature(args):
+    global CAFFE_ROOT
+    if (len(args) < 3):
+        print "usage: [model def] [caffemodel] [layer name] [input dir] [output dir] [optional range (x1,y1,x2,y2)]"
+        return
+    
+    model_def = args[0]
+    model_fname = args[1]
+    layername = args[2]
+    input_path = args[3]
+    output_path = args[4]
+    try: rect_str = args[5]
+    except IndexError: rect_str = ''
+    
+    try: os.makedirs(output_path)
+    except OSError: pass
+
+
+    net = caffe.Net(model_def, model_fname, caffe.TEST) 
+    if len(net._inputs) != 1:
+        print "Your net has %d inputs. Please make sure it has only one input" % len(net._inputs)
+        exit(-1)
+
+    input_name = net._blob_names[net._inputs[0]]
+    input_sz = net.blobs[input_name].data.shape
+    if (rect_str): rect = map(int, rect_str.split(','))
+
+    for fname in os.listdir(input_path):
+        try:
+            img = cv2.imread(fname)
+            if img is None: continue
+            if rect_str == '': img = cv2.resize(img, (input_sz[3], input_sz[2]))
+            else: img = cv2.resize(img[rect[1]:rect[3], rect[0]:rect[2]], (input_sz[3], input_sz[2]))
+            plt.imshow(img, interpolation='nearest')
+            plt.show()
+            img = img.transpose(2, 0, 1) # caffe style
+        except Exception as e:
+            print "Error on ", fname
+            print e
+            continue
+
+        net.blobs[input_name].data[0,:,:,:] = img
+        net.forward()
+        print img
+
+        if not net.blobs.has_key(layername):
+            print "No layer named \"%s\"" % layername
+            print "Possible candidates: ", net.blobs.keys()
+            exit(0)
+
+        activation = net.blobs[layername].data[0]
+        outfname = os.path.join(output_path, fname + '.hdf5')
+        f=h5py.File(outfname, 'w')
+        f['output'] = activation
+        for blobname in net.blobs.keys():
+            f[blobname] = net.blobs[blobname].data[0]
+        f.close()
+
+
 COMMANDS=[
     ('clean',do_clean),
     ('dataset' ,do_dataset),
@@ -933,6 +992,7 @@ COMMANDS=[
     ('draw', do_draw),
     ('eval', do_eval),
     ('extract', do_extract),
+    ('feature', do_feature),
     ('pack', do_pack),
     ('visweight', do_visweight),
     ('visevol', do_visevol),
