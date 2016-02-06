@@ -647,7 +647,7 @@ def do_pltloss(args):
     else: fname = args[0]
 
     if os.path.isdir(fname):
-        fname = os.path.join(path, 'train.log')
+        fname = os.path.join(fname, 'train.log')
 
     if len(args)>1: recent_entry = int(args[1])
     else: recent_entry = None
